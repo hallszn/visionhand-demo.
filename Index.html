@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VisionHand Control Mobile Demo</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: Arial; background: #f0f0f0; }
+        canvas { width: 100vw; height: 60vh; border: 1px solid black; display: block; }
+        #video { position: fixed; top: 5px; right: 5px; width: 100px; z-index: 10; }
+        #instructions { position: fixed; bottom: 5px; left: 5px; font-size: 12px; color: #333; background: rgba(255, 255, 255, 0.8); padding: 5px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+    <div id="instructions">
+        <h3>VisionHand Demo</h3>
+        <p>1. Allow camera access.</p>
+        <p>2. Look at screen to move cursor.</p>
+        <p>3. Pinch thumb & index to click.</p>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/webgazer@latest/webgazer.js"></script>
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight * 0.6;
+
+        // Webcam setup
+        const video = document.getElementById('video');
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+            .then(stream => { video.srcObject = stream; })
+            .catch(err => alert('Camera access required: ' + err));
+
+        // WebGazer for eye tracking
+        webgazer.setGazeListener((data, elapsedTime) => {
+            if (data == null) return;
+            cursor.x = data.x;
+            cursor.y = data.y;
+        }).begin();
+
+        // MediaPipe Hands for gesture tracking
+        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}` });
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7 });
+        hands.onResults(onHandResults);
+
+        function onHandResults(results) {
+            if (results.multiHandLandmarks) {
+                const landmarks = results.multiHandLandmarks[0];
+                const thumb = landmarks[4];
+                const index = landmarks[8];
+                const distance = Math.sqrt(
+                    Math.pow(thumb.x - index.x, 2) + Math.pow(thumb.y - index.y, 2)
+                );
+                if (distance < 0.05) {
+                    targets.forEach(target => {
+                        if (Math.abs(cursor.x - target.x) < 30 && Math.abs(cursor.y - target.y) < 30) {
+                            target.clicked = true;
+                            setTimeout(() => { target.clicked = false; }, 500);
+                        }
+                    });
+                }
+            }
+        }
+
+        // MediaPipe camera
+        const camera = new Camera(video, {
+            onFrame: async () => { await hands.send({ image: video }); },
+            width: 320,
+            height: 240
+        });
+        camera.start();
+
+        // Cursor and targets
+        let cursor = { x: canvas.width / 2, y: canvas.height / 2 };
+        let targets = [
+            { x: canvas.width * 0.3, y: canvas.height * 0.3, clicked: false },
+            { x: canvas.width * 0.5, y: canvas.height * 0.5, clicked: false },
+            { x: canvas.width * 0.7, y: canvas.height * 0.7, clicked: false }
+        ];
+
+        // Animation loop
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw targets
+            targets.forEach(target => {
+                ctx.fillStyle = target.clicked ? 'green' : 'red';
+                ctx.beginPath();
+                ctx.arc(target.x, target.y, 20, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Draw cursor
+            ctx.fillStyle = 'blue';
+            ctx.beginPath();
+            ctx.arc(cursor.x, cursor.y, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            requestAnimationFrame(draw);
+        }
+        draw();
+    </script>
+</body>
+</html>
